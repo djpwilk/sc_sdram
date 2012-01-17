@@ -25,7 +25,6 @@
  *
  * sdram.xc
  *
- * Must be compiled with -O2
  * Tools version min 9.9.0 is required
  *
  *************************************************************************
@@ -76,7 +75,6 @@ static void init()
 {
 	p_sdram_addr <: 0;
 	partout(p_sdram_addr0,1,0);
-
 	sync(p_sdram_addr);
 
 	set_port_clock(p_sdram_clk, b_sdram_clk);
@@ -100,20 +98,12 @@ static void init()
 	set_port_slave(p_sdram_addr);
 	set_port_slave(p_sdram_addr0);
 
-  // 12.5 MHz clock
-  set_clock_div(b_sdram_clk, 4);
+        // 12.5 MHz clock
+        set_clock_div(b_sdram_clk, 4);
 
 	// Delays
-	// 9 clocks required for b_sdram_io to run along with b_sdram_clk
-#ifdef CHIPLVL
-	// Chip level simulation
-	set_clock_fall_delay(b_sdram_io, 9);
-	set_clock_rise_delay(b_sdram_io, 13);
-#else
-	// Real hardware
 	set_clock_fall_delay(b_sdram_io, 11);
 	set_clock_rise_delay(b_sdram_io, 13);
-#endif
 
 	// Do not start clock port yet
 	set_port_mode_clock(p_sdram_clkblk);
@@ -125,17 +115,14 @@ static void init()
 	// Initialise all signals to 0 except command lines (INHIBIT)
 	p_sdram_cke <: 0;
 	partout(p_sdram_cmd,4,0xF);
-
 	p_sdram_dq <: 0;
 	p_sdram_addr <: 0;
 	partout(p_sdram_addr0,1,0);
-
 	p_sdram_ba0 <: 0;
 	p_sdram_ba1 <: 0;
 	p_sdram_dqm0 <: 0;
 	p_sdram_dqm1 <: 0;
 	partout(p_sdram_gate,1,1);
-
 
 	// Start clock and provide 100us for SDRAM start up
 	// Assert CKE in between
@@ -164,11 +151,9 @@ static void init()
 	// Value A=0x37 is bitrev(0x1B) on addr and 1 on addr0
 	partout(p_sdram_cmd,16,0xEE0E);
 	partout(p_sdram_addr0,1,1);
-
 	p_sdram_addr <: bitrev(0x1B);
 	p_sdram_gate <: 0b1111;
-	partout(p_sdram_gate,1,0);
-
+        partout(p_sdram_gate,1,0);
 	sync(p_sdram_gate);
 
 	set_thread_fast_mode_on();
@@ -199,8 +184,6 @@ static void refresh()
 	p_sdram_gate <: 0b1111;
 	p_sdram_gate <: 0b1111;
 	partout(p_sdram_gate,1,0);
-
-
 }
 
 void sdram_init(chanend server)
@@ -225,133 +208,131 @@ void sdram_server(chanend client)
 	init();
 	client <: 0;
 	while (running)
-	{
-		unsigned cmd;
-		client :> cmd;
-		switch (cmd)
-		{
-      case 1:
-        shutdown();
-        running = 0;
-        break;
-
-      case 2:
-        // REFRESH required every 7us
-        refresh();
-        break;
-
-      case 3:
-        // Write
-        master
         {
-          int bank, row, col, nwords;
-          unsigned t;
-          unsigned dt;
-          unsigned x;
-          unsigned colw;
-          int i;
+	  unsigned cmd;
+	  client :> cmd;
+	  switch (cmd) {
+            case 1:
+              shutdown();
+              running = 0;
+              break;
+
+            case 2:
+              // REFRESH required every 7us
+              refresh();
+              break;
+
+            case 3:
+              // Write
+              master
+              {
+                int bank, row, col, nwords;
+                unsigned t;
+                unsigned dt;
+                unsigned x;
+                unsigned colw;
+                int i;
           
-          client :> bank;
-          client :> row;
-          client :> col;
-          client :> nwords;
+                client :> bank;
+                client :> row;
+                client :> col;
+                client :> nwords;
 
-          // ACTIVE first
-          // WRITE with no auto-precharge (A10 = 0)
-          // Terminated with PRECHARGE single bank (A10 = 0)
-          // Column address bit 0 is always 0 (32b word aligned)
-          // Data port is driving throughout this function
-          // No FNOPs in data loop (budget is 4 instrs at 25MHz/50MIPS)
-          dt = 2 * nwords + 2;
-          colw = bitrev(col);
-          i = nwords - 1;
-          p_sdram_ba0 <: bank;
-          p_sdram_ba1 <: bank >> 1;
-          p_sdram_addr0 <: (row & 1) << 1;
-          p_sdram_addr <: 0;
-          p_sdram_addr <: bitrev(row >> 1);
-          partout(p_sdram_cmd,16,0xE4AE);
+                // ACTIVE first
+                // WRITE with no auto-precharge (A10 = 0)
+                // Terminated with PRECHARGE single bank (A10 = 0)
+                // Column address bit 0 is always 0 (32b word aligned)
+                // Data port is driving throughout this function
+                // No FNOPs in data loop (budget is 4 instrs at 25MHz/50MIPS)
+                dt = 2 * nwords + 2;
+                colw = bitrev(col);
+                i = nwords - 1;
+                p_sdram_ba0 <: bank;
+                p_sdram_ba1 <: bank >> 1;
+                p_sdram_addr0 <: (row & 1) << 1;
+                p_sdram_addr <: 0;
+                p_sdram_addr <: bitrev(row >> 1);
+                partout(p_sdram_cmd,16,0xE4AE);
+                p_sdram_dq <: 0;
 
-          p_sdram_dq <: 0;
-          partout_timed(p_sdram_gate, 1, 0, t);
+                t = partout_timestamped(p_sdram_gate, 1, 0);
 
-          t += 12;
-          partout_timed(p_sdram_gate, 1, 1, t);   // IO: kick off
-          t += dt;
-          p_sdram_dqm0 @ t <: 0b0001;
-          p_sdram_dqm1 @ t <: 0b0001;
-          partout_timed(p_sdram_cmd, 8, 0xE8, t);
+                t += 12;
+                partout_timed(p_sdram_gate, 1, 1, t);   // IO: kick off
+                t += dt;
+                p_sdram_dqm0 @ t <: 0b0001;
+                p_sdram_dqm1 @ t <: 0b0001;
+                partout_timed(p_sdram_cmd, 8, 0xE8, t);
+                client :> x;
+                p_sdram_dq <: x;          // IO: first data
+                client :> x;
+                p_sdram_addr <: colw;
+                p_sdram_gate @ t <: 0b0011;
+                while (i != 0)
+                {
+                  p_sdram_dq <: x;        // IO: next data
+                  client :> x;            // last data is not written to p_sdram_dq (timing optimisation)
+                  i--;
+                }
+              }
+              break;
 
-          client :> x;
-          p_sdram_dq <: x;          // IO: first data
-          client :> x;
-          p_sdram_addr <: colw;
-          p_sdram_gate @ t <: 0b0011;
-          while (i != 0)
-          {
-            p_sdram_dq <: x;        // IO: next data
-            client :> x;            // last data is not written to p_sdram_dq (timing optimisation)
-            i--;
-          }
-        }
-        break;
-
-      case 4:
-        // Read
-        master
-        {
-          int bank, row, col, nwords;
-          unsigned t0, t1, t2;
-          unsigned dt; 
-          unsigned x;
-          unsigned colw;
-          int i;
+            case 4:
+              // Read
+              master
+              {
+                int bank, row, col, nwords;
+                unsigned t0, t1, t2;
+                unsigned dt; 
+                unsigned x;
+                unsigned colw;
+                int i;
           
-          client :> bank;
-          client :> row;
-          client :> col;
-          client :> nwords;
+                client :> bank;
+                client :> row;
+                client :> col;
+                client :> nwords;
 
-          // ACTIVE first
-          // READ with no auto-precharge (A10 = 0)
-          // Terminated with PRECHARGE single bank (A10 = 0)
-          // Data port is driving when entering and leaving this function
-          // No FNOPs in data loop (budget is 4 instrs at 25MHz/50MIPS)
-          dt = 2 * nwords + 2;
-          colw = bitrev(col);
-          i = nwords - 1;
-          p_sdram_ba0 <: bank;
-          p_sdram_ba1 <: bank >> 1;
-          p_sdram_addr0 <: (row & 1) << 1;
-          p_sdram_addr <: 0;
-          p_sdram_addr <: bitrev(row >> 1);
-          partout(p_sdram_cmd, 16, 0xE6AE);
-          partout_timed(p_sdram_gate, 1, 0, t0);
-          t0 += 12;
-          t1 = t0 + 4;
-          t2 = t0 + dt;
-          p_sdram_dqm0 @ t2 <: 0b0010;
-          p_sdram_dqm1 @ t2 <: 0b0010;
-          p_sdram_gate @ t0 <: 0b1111;  // IO: kick off
-          partout_timed(p_sdram_cmd, 8, 0xE8, t2);
-          p_sdram_addr <: colw;         // IO: address
-          p_sdram_dq @ t1 :> int pre_data;
-          p_sdram_gate @ (t2 + 5) <: 0;
-          p_sdram_dq :> x;
+                // ACTIVE first
+                // READ with no auto-precharge (A10 = 0)
+                // Terminated with PRECHARGE single bank (A10 = 0)
+                // Data port is driving when entering and leaving this function
+                // No FNOPs in data loop (budget is 4 instrs at 25MHz/50MIPS)
+                dt = 2 * nwords + 2;
+                colw = bitrev(col);
+                i = nwords - 1;
+                p_sdram_ba0 <: bank;
+                p_sdram_ba1 <: bank >> 1;
+                p_sdram_addr0 <: (row & 1) << 1;
+                p_sdram_addr <: 0;
+                p_sdram_addr <: bitrev(row >> 1);
+                partout(p_sdram_cmd, 16, 0xE6AE);
+                t0 = partout_timestamped(p_sdram_gate, 1, 0);
+                t0 += 12;
+                t1 = t0 + 4;
+                t2 = t0 + dt;
+                p_sdram_dqm0 @ t2 <: 0b0010;
+                p_sdram_dqm1 @ t2 <: 0b0010;
+                p_sdram_gate @ t0 <: 0b1111;  // IO: kick off
+                partout_timed(p_sdram_cmd, 8, 0xE8, t2);
+                p_sdram_addr <: colw;         // IO: address
+                p_sdram_dq @ t1 :> int pre_data;
+                p_sdram_gate @ (t2 + 5) <: 0;
+                p_sdram_dq :> x;
 
-          client <: x;
-          while (i != 0)
-          {
-            p_sdram_dq :> x;            // IO: data
-            client <: x;
-            i--;
-          }
-          // Note: Do not remove, turning the port around for each read() generates required timing
-          p_sdram_dq <: 0;
-          p_sdram_gate @ (t2 + 12) <: 0b0011;
+                client <: x;
+                while (i != 0)
+                {
+                  p_sdram_dq :> x;            // IO: data
+                  client <: x;
+                  i--;
+                }
+                // Note: Do not remove, turning the port around for each read() generates required timing
+                p_sdram_dq <: 0;
+                p_sdram_gate @ (t2 + 12) <: 0b0011;
+              }
+              break;
+	    }
         }
-        break;
-		}
-	}
 	client <: 0;
 }

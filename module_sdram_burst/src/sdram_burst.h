@@ -33,9 +33,29 @@
 #ifndef _sdram_h_
 #define _sdram_h_
 
-void sdram_server(chanend client);
+
+/** Configures the ports and clocks for the SDRAM interface and then runs the
+ *  initialisation process described on Page 43 of the datasheet.
+ * 
+ *  Clocks Config:
+ *    - 1 clkblk b_sdram_clk outputs a 12.5 MHz clock on port 1A
+ *    - 1 clkblk b_sdram_io creates a delayed version of the sdram_clk to drive the IO
+ *    and meet required setup and hold timings
+ * 
+ *  Ports Config:
+ *    - p_sdram_dq (bidir data) uses a 16 bit port configured with 32b transfer reg for word aligned access 
+ *    - p_sdram_cmd aggregates CAS_N, RAS_N, WE_N and CE_N onto a 4 bit port with CAS_N in most significant bit, 
+ *    and a 32b transfer reg to hold a total of 8 command cycles
+ *    - bank address, cke are on 1 bit buffered ports
+ *    - p_sdram_addr drives bits 12:1 of the row/col address on the port 32A, p_sdram_addr0 drives bit 0 on port 1G.
+ *    p_sdram_addr0 has a 4b transfer reg 
+ *    - All the above ports are configured as strobed slaves controlled by p_sdram_gate. While the latter is high  
+*/    
+
 
 void sdram_init(chanend server);
+
+void sdram_server(chanend client);
 void sdram_shutdown(chanend server);
 
 // Every 15us
