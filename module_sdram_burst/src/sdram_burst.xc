@@ -114,7 +114,7 @@ static void init()
 
 	// Initialise all signals to 0 except command lines (INHIBIT)
 	p_sdram_cke <: 0;
-	partout(p_sdram_cmd,4,0xF);
+	partout(p_sdram_cmd,4,CMD_INH); 
 	p_sdram_dq <: 0;
 	p_sdram_addr <: 0;
 	partout(p_sdram_addr0,1,0);
@@ -126,32 +126,38 @@ static void init()
 
 	// Start clock and provide 100us for SDRAM start up
 	// Assert CKE in between
-#if defined(CHIPLVL) || defined(SIMULATION)
-	set_port_mode_clock(p_sdram_clk);
-	p_sdram_cke <: 1;
-	uswait(0);
-#else
 	uswait(50);
 	set_port_mode_clock(p_sdram_clk);
 	uswait(50);
 	p_sdram_cke <: 1;
 	uswait(50);
-#endif
+
 
 	// PRECHARGE (all banks A10=1) and wait 20ns
 	// Two AUTO REFRESH with 66ns in between
 	// Bit A10 is bit 22 of addr
 	p_sdram_addr <: (1 << 22);
+
+        // CMDS [ PRE(8) REF(2) INH INH INH INH REF NOP ]
 	p_sdram_cmd <: 0xE2FFFF28;
 
 	sync(p_sdram_cmd);
 	partout(p_sdram_gate,1,0);
 
-	// Program mode register: CL3, sequential, continuous burst (0x37)
+	// Program mode register, value=0x37 (see page 47 of datasheet)
+        // CAS Latency = 3, 
+        // Burst Type = 0 (sequential)
+        // Write Burst Mode = 0 (continuous burst, programmed length = 8)
 	// Value A=0x37 is bitrev(0x1B) on addr and 1 on addr0
+
+        // CMDS [ NOP NOP LMR(0) NOP ]
 	partout(p_sdram_cmd,16,0xEE0E);
+
+        //output mode reg value on addr
 	partout(p_sdram_addr0,1,1);
 	p_sdram_addr <: bitrev(0x1B);
+
+        //start 6 cycles of output
 	p_sdram_gate <: 0b1111;
         partout(p_sdram_gate,1,0);
 	sync(p_sdram_gate);
@@ -180,7 +186,10 @@ static void shutdown()
 // Each refresh requires 66ns to complete
 static void refresh()
 {
+        // CMDS = [ NOP REF(2) NOP NOP REF NOP NOP NOP ]
 	p_sdram_cmd <: 0xEEE2EE2E;
+
+        //permit 9 cycles of output
 	p_sdram_gate <: 0b1111;
 	p_sdram_gate <: 0b1111;
 	partout(p_sdram_gate,1,0);
@@ -252,6 +261,8 @@ void sdram_server(chanend client)
                 p_sdram_addr0 <: (row & 1) << 1;
                 p_sdram_addr <: 0;
                 p_sdram_addr <: bitrev(row >> 1);
+
+                //CMDS = [ NOP, ACT(A), WR, NOP ]
                 partout(p_sdram_cmd,16,0xE4AE);
                 p_sdram_dq <: 0;
 
@@ -262,7 +273,10 @@ void sdram_server(chanend client)
                 t += dt;
                 p_sdram_dqm0 @ t <: 0b0001;
                 p_sdram_dqm1 @ t <: 0b0001;
+
+                //CMDS = [ PRE(8), NOP ]
                 partout_timed(p_sdram_cmd, 8, 0xE8, t);
+
                 client :> x;
                 p_sdram_dq <: x;          // IO: first data
                 client :> x;
@@ -306,6 +320,8 @@ void sdram_server(chanend client)
                 p_sdram_addr0 <: (row & 1) << 1;
                 p_sdram_addr <: 0;
                 p_sdram_addr <: bitrev(row >> 1);
+   
+                //CMDS = [NOP, ACT(A), RD, NOP]
                 partout(p_sdram_cmd, 16, 0xE6AE);
                 t0 = partout_timestamped(p_sdram_gate, 1, 0);
                 t0 += 12;
@@ -314,6 +330,8 @@ void sdram_server(chanend client)
                 p_sdram_dqm0 @ t2 <: 0b0010;
                 p_sdram_dqm1 @ t2 <: 0b0010;
                 p_sdram_gate @ t0 <: 0b1111;  // IO: kick off
+
+                //CMDS = [PRE(8), NOP ]
                 partout_timed(p_sdram_cmd, 8, 0xE8, t2);
                 p_sdram_addr <: colw;         // IO: address
                 p_sdram_dq @ t1 :> int pre_data;

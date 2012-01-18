@@ -16,6 +16,13 @@
 #ifndef _sdram_h_
 #define _sdram_h_
 
+#define CMD_INH 0xF
+#define CMD_NOP 0xE
+#define CMD_LMR 0X0
+#define CMD_PRE 0x8
+#define CMD_RD 0x6
+#define CMD_WR 0x4
+# define CMD_ACT 0xA
 
 /** Configures the ports and clocks for the SDRAM interface and then runs the
  *  initialisation process described on Page 43 of the datasheet.
