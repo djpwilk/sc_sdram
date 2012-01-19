@@ -253,6 +253,7 @@ void sdram_server(chanend client)
                 // Column address bit 0 is always 0 (32b word aligned)
                 // Data port is driving throughout this function
                 // No FNOPs in data loop (budget is 4 instrs at 25MHz/50MIPS)
+
                 dt = 2 * nwords + 2;
                 colw = bitrev(col);
                 i = nwords - 1;
@@ -263,24 +264,35 @@ void sdram_server(chanend client)
                 p_sdram_addr <: bitrev(row >> 1);
 
                 //CMDS = [ NOP, ACT(A), WR, NOP ]
+                //1: load transfer register and output first command (NOP). Zero the data output
                 partout(p_sdram_cmd,16,0xE4AE);
                 p_sdram_dq <: 0;
 
+                //2: disable slaved ports and obtain timestamp t. Remainder of burst is scheduled from startpoint t
                 t = partout_timestamped(p_sdram_gate, 1, 0);
 
+                //3: 12 sdram clock cycles must now be added to t, so that the initiation of the burst (enabled by 
+                // setting p_sdram_gate=1 occurs after the remaining address, data and dqm setup below has 
+                // been completed and first data word has been output. See comment FIRST DATA below. 
                 t += 12;
-                partout_timed(p_sdram_gate, 1, 1, t);   // IO: kick off
+                partout_timed(p_sdram_gate, 1, 1, t);   // 3: SCHEDULE START OF BURST
+
+                // dt corresponds to the number of cycles required to output the burst of nwords and issue a precharge termination
                 t += dt;
-                p_sdram_dqm0 @ t <: 0b0001;
+
+                p_sdram_dqm0 @ t <: 0b0001; //dqm will be driven high con-incident with the precharge termination, at t=t0+12+dt
                 p_sdram_dqm1 @ t <: 0b0001;
 
                 //CMDS = [ PRE(8), NOP ]
-                partout_timed(p_sdram_cmd, 8, 0xE8, t);
+                partout_timed(p_sdram_cmd, 8, 0xE8, t); //A precharge burst termination command is issued at t=t0+12+dt
 
                 client :> x;
-                p_sdram_dq <: x;          // IO: first data
+                p_sdram_dq <: x;            // Output first data word on DQ
+                                            
                 client :> x;
-                p_sdram_addr <: colw;
+                p_sdram_aaddr <: colw;      // Output column address to co-incide with write command
+
+                //FIRST DATA. Code above must complete before p_sdram_gate goes high. See SCHEDULE START OF BURST
                 p_sdram_gate @ t <: 0b0011;
                 while (i != 0)
                 {
@@ -312,6 +324,7 @@ void sdram_server(chanend client)
                 // Terminated with PRECHARGE single bank (A10 = 0)
                 // Data port is driving when entering and leaving this function
                 // No FNOPs in data loop (budget is 4 instrs at 25MHz/50MIPS)
+
                 dt = 2 * nwords + 2;
                 colw = bitrev(col);
                 i = nwords - 1;
@@ -322,29 +335,45 @@ void sdram_server(chanend client)
                 p_sdram_addr <: bitrev(row >> 1);
    
                 //CMDS = [NOP, ACT(A), RD, NOP]
+                //1: load transfer register and output first command (NOP). 
                 partout(p_sdram_cmd, 16, 0xE6AE);
+
+                //2: disable slaved ports and obtain timestamp t0. Remainder of burst is scheduled from startpoint t0
                 t0 = partout_timestamped(p_sdram_gate, 1, 0);
+
+                //3: 12 sdram clock cycles must now be added to t0, so that the initiation of the burst (enabled by 
+                // setting p_sdram_gate=1 occurs after the remaining address, data and dqm setup below has 
+                // been completed and first data word has been output. See comment FIRST DATA below. 
                 t0 += 12;
+
+                //t1 is the time at which the dq bus must be turned around to input
                 t1 = t0 + 4;
+
+                //t2 is the time at which the burst must be terminated by issuing a precharge command.
                 t2 = t0 + dt;
-                p_sdram_dqm0 @ t2 <: 0b0010;
+
+                p_sdram_dqm0 @ t2 <: 0b0010;             //DQM is setup to terminate the burst alongside precharge command at the right moment, t2+1
                 p_sdram_dqm1 @ t2 <: 0b0010;
-                p_sdram_gate @ t0 <: 0b1111;  // IO: kick off
+                p_sdram_gate @ t0 <: 0b1111;             // enable slaved ports from time t0
 
                 //CMDS = [PRE(8), NOP ]
-                partout_timed(p_sdram_cmd, 8, 0xE8, t2);
-                p_sdram_addr <: colw;         // IO: address
-                p_sdram_dq @ t1 :> int pre_data;
-                p_sdram_gate @ (t2 + 5) <: 0;
-                p_sdram_dq :> x;
+                partout_timed(p_sdram_cmd, 8, 0xE8, t2); //Schedule burst termination command at t2
 
+                p_sdram_addr <: colw;                    // Output column address to co-incide with read command
+                p_sdram_dq @ t1 :> int pre_data;         // Bus is turned around at t1. Data will be invalid/discarded here
+                p_sdram_gate @ (t2 + 5) <: 0;            // disable slaved ports after burst is completed
+
+                p_sdram_dq :> x;                         // input first valid read word and send to client
                 client <: x;
+
+                //input rest of burst and send to client
                 while (i != 0)
                 {
                   p_sdram_dq :> x;            // IO: data
                   client <: x;
                   i--;
                 }
+                // turn DQ bus back to default output state
                 // Note: Do not remove, turning the port around for each read() generates required timing
                 p_sdram_dq <: 0;
                 p_sdram_gate @ (t2 + 12) <: 0b0011;
