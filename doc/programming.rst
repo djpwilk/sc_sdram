@@ -62,10 +62,57 @@ SDRAM Init
 
 The initialisation process (sdram_init() in sdram_burst.xc) configures the ports as above and then executes the specified initialisation sequence (see page 43 of the datasheet) on the memory.
 
+The SDRAM Mode Register is setup as follows:
+
+   * CAS Latency = 3
+   * Burst Type = Sequential
+   * Continuous Burst, programmed length =8
+
 SDRAM Write
 -----------
 
-The sdram_write function uses a timstamped output to the p_sdram_gate port which in turn enables a precise number of cycles of output to the command, address and data ports. 
+The sdram_write function uses a timstamped output to the p_sdram_gate port which in turn enables a precise number of cycles of output to the command, address and data ports. There are essentially two phases to the write burst:
+
+Phase 1
++++++++
+
+Begins at time 't' with p_sdram_gate being set low to disabled slaved ports, after the cmd port has been loaded with  NOP, ACT(A), WR, NOP. 
+
+p_sdram_gate is scheduled to be set high 12 sdram_clk cycles later. During this 12 cycles the following operations are performed:
+
+   #. Prepare dqm ports to be asserted on the cycle the burst is terminiated, and prepare cmd port to issue precharge command on cycle the burst is to terminate
+   #. Load the address port with the column address port for the burst write, to be output co-incident with the WRITE command.
+   #. Obtain the first two half-words to be written from the client and output the first of them on DQ.
+
+Phase 2
++++++++
+
+Begins at time t+12, after which p_sdram_gate is high and slaved ports are enabled. This phase lasts time 'dt' clock cycles, defined as twice the number of 32bit words to be written plus 2 (to accomodate burst termination). This phase is ended by the issuance of the precharge command from the cmd port which terminates the burst.
+
+SDRAM Read
+----------
+
+The sdram_read function uses a timstamped output to the p_sdram_gate port which in turn enables a precise number of cycles of output to the command, address and data ports. There are essentially two phases to the write burst:
+
+Phase 1
++++++++
+
+Begins at time 't' with p_sdram_gate being set low to disabled slaved ports, after the cmd port has been loaded with  NOP, ACT(A), WR, NOP. 
+
+p_sdram_gate is scheduled to be set high 12 sdram_clk cycles later. During this 12 cycles the following operations are performed:
+
+   #. Prepare dqm ports to be asserted on the cycle the burst is terminiated, and prepare cmd port to issue precharge command on cycle the burst is to terminate
+   #. Load the address port with the column address port for the burst write, to be output co-incident with the WRITE command.
+
+Phase 2
++++++++
+
+Begins at time t+12, after which p_sdram_gate is high and slaved ports are enabled. This phase lasts time 'dt' clock cycles, defined as twice the number of 32bit words to be read plus 2 (to accomodate burst termination). This phase is ended by the issuance of the precharge command from the cmd port which terminates the burst. 4 cycles after the initiation of this phase the DQ port is turned to input to receive the read burst. The 4 cycles derives from the CAS latency which is set to 3. The burst is then input and sent to the client.
+
+
+
+
+
 
  
 
